@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador MRU / MRUA</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f4f4f9; }
+        h1 { text-align: center; color: #333; }
+        .controls { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; }
+        .control-group { display: flex; flex-direction: column; }
+        label { font-size: 0.9em; font-weight: bold; margin-bottom: 5px; color: #555; }
+        input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 100px; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 1em; }
+        button:hover { background-color: #0056b3; }
+        #sim-canvas { background: #e9ecef; border-radius: 8px; width: 100%; border: 1px solid #ccc; margin-bottom: 20px; display: block; }
+        .stats { display: flex; justify-content: space-around; background: #333; color: #fff; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-family: monospace; font-size: 1.2em; }
+        .charts-container { display: flex; gap: 20px; }
+        .chart-box { flex: 1; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <h1>Simulador de Física: MRU y MRUA</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>Velocidad Inicial (m/s)</label>
+            <input type="number" id="v0" value="5" step="0.1">
+        </div>
+        <div class="control-group">
+            <label>Aceleración (m/s²)</label>
+            <input type="number" id="a" value="1" step="0.1">
+        </div>
+        <div class="control-group">
+            <label>Tiempo Máximo (s)</label>
+            <input type="number" id="tMax" value="10" min="1">
+        </div>
+        <button id="btn-play" onclick="toggleSim()">Iniciar</button>
+        <button onclick="resetSim()" style="background-color: #6c757d;">Reiniciar</button>
+    </div>
+
+    <div class="stats">
+        <div>Tiempo: <span id="out-t">0.00</span> s</div>
+        <div>Posición: <span id="out-x">0.00</span> m</div>
+        <div>Velocidad: <span id="out-v">0.00</span> m/s</div>
+    </div>
+
+    <canvas id="sim-canvas" width="800" height="150"></canvas>
+
+    <div class="charts-container">
+        <div class="chart-box"><canvas id="chart-x"></canvas></div>
+        <div class="chart-box"><canvas id="chart-v"></canvas></div>
+    </div>
+
+    <script>
+        // Variables globales
+        let v0, a, tMax;
+        let time = 0;
+        let isRunning = false;
+        let animationId;
+        let chartX, chartV;
+        
+        const canvas = document.getElementById('sim-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Inicializar Gráficas (Chart.js)
+        function initCharts() {
+            const ctxX = document.getElementById('chart-x').getContext('2d');
+            const ctxV = document.getElementById('chart-v').getContext('2d');
+
+            if(chartX) chartX.destroy();
+            if(chartV) chartV.destroy();
+
+            const config = (title, color) => ({
+                type: 'line',
+                data: { labels: [], datasets: [{ label: title, data: [], borderColor: color, tension: 0.1, fill: false }] },
+                options: { animation: false, scales: { x: { title: { display: true, text: 'Tiempo (s)' } } } }
+            });
+
+            chartX = new Chart(ctxX, config('Posición (m)', '#007bff'));
+            chartV = new Chart(ctxV, config('Velocidad (m/s)', '#dc3545'));
+        }
+
+        // Lógica de Animación y Física
+        function drawFrame() {
+            if (!isRunning) return;
+
+            // Avanzar el tiempo (suponiendo 60 fps aprox = 0.016s por frame)
+            time += 0.02; 
+            if (time >= tMax) {
+                time = tMax;
+                toggleSim(); // Pausar automáticamente al llegar al final
+            }
+
+            // Ecuaciones cinemáticas
+            let x = (v0 * time) + (0.5 * a * Math.pow(time, 2));
+            let v = v0 + (a * time);
+
+            // Actualizar textos
+            document.getElementById('out-t').innerText = time.toFixed(2);
+            document.getElementById('out-x').innerText = x.toFixed(2);
+            document.getElementById('out-v').innerText = v.toFixed(2);
+
+            // Dibujar en Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Dibujar la carretera
+            ctx.beginPath();
+            ctx.moveTo(0, 100);
+            ctx.lineTo(canvas.width, 100);
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Calcular escala (para que el coche no se salga de la pantalla al máximo tiempo)
+            let maxPos = (v0 * tMax) + (0.5 * a * Math.pow(tMax, 2));
+            // Prevenir división por cero si no hay movimiento
+            let scale = maxPos > 0 ? (canvas.width - 50) / maxPos : 0; 
+            let drawX = x * scale;
+
+            // Dibujar el "Vehículo" (un rectángulo simple)
+            ctx.fillStyle = '#ffc107';
+            ctx.fillRect(drawX, 70, 40, 30);
+            ctx.fillStyle = '#000'; // Llantas
+            ctx.beginPath(); ctx.arc(drawX + 10, 100, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(drawX + 30, 100, 8, 0, Math.PI * 2); ctx.fill();
+
+            // Actualizar gráficas (añadir datos cada cierto tiempo para no saturar)
+            if (Math.round(time * 100) % 10 === 0) {
+                chartX.data.labels.push(time.toFixed(1));
+                chartX.data.datasets[0].data.push(x.toFixed(2));
+                chartX.update();
+
+                chartV.data.labels.push(time.toFixed(1));
+                chartV.data.datasets[0].data.push(v.toFixed(2));
+                chartV.update();
+            }
+
+            if (isRunning) {
+                animationId = requestAnimationFrame(drawFrame);
+            }
+        }
+
+        // Controles de Botones
+        function toggleSim() {
+            const btn = document.getElementById('btn-play');
+            if (isRunning) {
+                isRunning = false;
+                btn.innerText = 'Continuar';
+                cancelAnimationFrame(animationId);
+            } else {
+                if(time === 0 || time >= tMax) {
+                    // Leer inputs si empieza de cero
+                    v0 = parseFloat(document.getElementById('v0').value);
+                    a = parseFloat(document.getElementById('a').value);
+                    tMax = parseFloat(document.getElementById('tMax').value);
+                    if(time >= tMax) resetSim();
+                }
+                isRunning = true;
+                btn.innerText = 'Pausar';
+                btn.style.backgroundColor = '#dc3545';
+                drawFrame();
+            }
+        }
+
+        function resetSim() {
+            isRunning = false;
+            cancelAnimationFrame(animationId);
+            time = 0;
+            document.getElementById('btn-play').innerText = 'Iniciar';
+            document.getElementById('btn-play').style.backgroundColor = '#007bff';
+            
+            document.getElementById('out-t').innerText = '0.00';
+            document.getElementById('out-x').innerText = '0.00';
+            document.getElementById('out-v').innerText = '0.00';
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            initCharts();
+        }
+
+        // Inicializar canvas vacío al cargar
+        resetSim();
+    </script>
+</body>
+</html>
